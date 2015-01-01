@@ -83,6 +83,7 @@ void APAddressBookExternalChangeCallback(ABAddressBookRef addressBookRef, CFDict
                  completion:(void (^)(NSArray *contacts, NSError *error))completionBlock
 {
     APContactField fieldMask = self.fieldsMask;
+    BOOL mergeLinkedContacts = self.mergeLinkedContacts;
     NSArray *descriptors = self.sortDescriptors;
     APContactFilterBlock filterBlock = self.filterBlock;
 
@@ -97,14 +98,19 @@ void APAddressBookExternalChangeCallback(ABAddressBookRef addressBookRef, CFDict
                 CFArrayRef peopleArrayRef = ABAddressBookCopyArrayOfAllPeople(self.addressBook);
                 NSUInteger contactCount = (NSUInteger)CFArrayGetCount(peopleArrayRef);
                 NSMutableArray *contacts = [[NSMutableArray alloc] init];
+                NSMutableSet *skipRecordIDs = [NSMutableSet new];
                 for (NSUInteger i = 0; i < contactCount; i++)
                 {
                     ABRecordRef recordRef = CFArrayGetValueAtIndex(peopleArrayRef, i);
+                    ABRecordID recordID = ABRecordGetRecordID(recordRef);
+                    if ([skipRecordIDs containsObject:@(recordID)]) continue;
                     APContact *contact = [[APContact alloc] initWithRecordRef:recordRef
-                                                                    fieldMask:fieldMask];
+                                                                    fieldMask:fieldMask
+                                                           mergeLinkedRecords:mergeLinkedContacts];
                     if (!filterBlock || filterBlock(contact))
                     {
                         [contacts addObject:contact];
+                        [skipRecordIDs addObjectsFromArray:contact.linkedRecordIDs];
                     }
                 }
                 [contacts sortUsingDescriptors:descriptors];

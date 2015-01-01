@@ -15,7 +15,11 @@
 
 #pragma mark - life cycle
 
-- (id)initWithRecordRef:(ABRecordRef)recordRef fieldMask:(APContactField)fieldMask
+- (id)initWithRecordRef:(ABRecordRef)recordRef fieldMask:(APContactField)fieldMask {
+    return [self initWithRecordRef:recordRef fieldMask:fieldMask mergeLinkedRecords:NO];
+}
+
+- (id)initWithRecordRef:(ABRecordRef)recordRef fieldMask:(APContactField)fieldMask mergeLinkedRecords:(BOOL)mergeLinked
 {
     self = [super init];
     if (self)
@@ -99,6 +103,19 @@
         if (fieldMask & APContactFieldNote)
         {
             _note = [self stringProperty:kABPersonNoteProperty fromRecord:recordRef];
+        }
+        
+        if (mergeLinked) {
+            NSMutableArray *linkedRecordIDs = [NSMutableArray new];
+            CFArrayRef linkedContacts = ABPersonCopyArrayOfAllLinkedPeople(recordRef);
+            for (CFIndex i=0; i<CFArrayGetCount(linkedContacts); i++) {
+                ABRecordRef linkedRecord = (ABRecordRef)CFArrayGetValueAtIndex(linkedContacts, i);
+                APContact *contact = [[APContact alloc] initWithRecordRef:linkedRecord fieldMask:self.fieldMask mergeLinkedRecords:NO];
+                [[self class] mergeContact:contact intoContact:self];
+                [linkedRecordIDs addObject:@(ABRecordGetRecordID(linkedRecord))];
+            }
+            CFRelease(linkedContacts);
+            _linkedRecordIDs = linkedRecordIDs;
         }
     }
     return self;
@@ -194,6 +211,32 @@
         block(multiValue, i);
     }
     CFRelease(multiValue);
+}
+
++ (void)mergeContact:(APContact *)mergeSource intoContact:(APContact *)mergeDestination {
+    static NSArray *scalarProperties = nil;
+    static NSArray *arrayProperties = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        scalarProperties = @[@"firstName", @"middleName", @"lastName", @"compositeName", @"company", @"photo", @"thumbnail", @"creationDate", @"modificationDate", @"note"];
+        arrayProperties = @[@"phones", @"phonesWithLabels", @"emails", @"addresses", @"socialProfiles"];
+    });
+    for (NSString *prop in scalarProperties) {
+        id sourceVal = [mergeSource valueForKey:prop];
+        id destVal = [mergeDestination valueForKey:prop];
+        if (sourceVal && !destVal) {
+            [mergeDestination setValue:sourceVal forKey:prop];
+        }
+    }
+    for (NSString *prop in arrayProperties) {
+        NSArray *sourceVals = [mergeSource valueForKey:prop];
+        NSArray *destVals = [mergeDestination valueForKey:prop];
+        if (sourceVals && !destVals) {
+            [mergeDestination setValue:sourceVals forKey:prop];
+        } else if (destVals && sourceVals) {
+            [mergeDestination setValue:[sourceVals arrayByAddingObjectsFromArray:destVals] forKey:prop];
+        }
+    }
 }
 
 @end
